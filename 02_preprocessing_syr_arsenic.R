@@ -109,7 +109,7 @@ arsenic_demo_facility_treatment <- facility_report %>%
          str_detect(tolower(facility_name), "plant") | 
          str_detect(tolower(facility_name), "tp"))   # Case-insensitive match
   ) %>%
-  group_by(pwsid, pws_name, epa_region, epa_region_code, activity_status, activity_status_code, gw_or_sw_code, service_connections_count, owner_type_code, pws_type_code, phone_number, is_wholesaler, seller_pwsid, seller_pws_name, seller_treatment_description, email_address) %>%
+  group_by(pwsid, pws_name, epa_region, epa_region_code, activity_status, activity_status_code, gw_or_sw_code, service_connections_count, owner_type_code, pws_type_code, phone_number, is_wholesaler, seller_pwsid, seller_pws_name, seller_treatment_description, email_address, zip_code) %>%
   summarise(
     treatment_objective_code = if (all(is.na(treatment_objective_code))) {
       NA_character_
@@ -457,7 +457,8 @@ syr_arsenic_demo_cleaned_subset <- syr_arsenic_demo_cleaned %>%
     seller_pws_name, 
     seller_treatment_description, 
     phone_number, 
-    email_address
+    email_address,
+    zip_code
   )
 
 #write_csv(syr_arsenic_demo_cleaned_subset, "data/cleaned/syr_arsenic_demo_site_cleaned.csv")
