@@ -109,7 +109,7 @@ arsenic_demo_facility_treatment <- facility_report %>%
          str_detect(tolower(facility_name), "plant") | 
          str_detect(tolower(facility_name), "tp"))   # Case-insensitive match
   ) %>%
-  group_by(pwsid, pws_name, activity_status, activity_status_code) %>%
+  group_by(pwsid, pws_name, epa_region, epa_region_code, activity_status, activity_status_code, gw_or_sw_code, service_connections_count, owner_type_code, pws_type_code, phone_number, is_wholesaler, seller_pwsid, seller_pws_name, seller_treatment_description, email_address) %>%
   summarise(
     treatment_objective_code = if (all(is.na(treatment_objective_code))) {
       NA_character_
@@ -403,28 +403,38 @@ syr_arsenic_demo_cleaned <- syr_arsenic_cleaned_names %>%
 
 # Subset the dataframe to include only the specified columns
 syr_arsenic_demo_cleaned_subset <- syr_arsenic_demo_cleaned %>%
+  mutate(value_ug_l = value * 1000) %>%
   select(
+    pwsid,
+    pws_name,
+    epa_region,
+    epa_region_code,
     data_source, 
     analyte_code, 
     analyte_name, 
     primacy_code, 
     state_code = state_code.x, 
-    pwsid, 
     activity_status,
     activity_status_code,
     system_name = site_name, 
     system_type, 
     retail_population_served, 
     adjusted_total_population_served, 
+    service_connections_count,
     source_water_type, 
+    gw_or_sw_code,
+    owner_type_code,
+    pws_type_code = pws_type_code.x,
     water_facility_id,
     water_facility_type,  
     source_type_code, 
     sample_type_code, 
     sample_collection_date, 
     detect, 
-    value, 
+    value = value, 
     unit, 
+    value_mg_l = value,
+    value_ug_l,
     pws_name, 
     treatment_objective_code, 
     treatment_process_code, 
@@ -441,7 +451,13 @@ syr_arsenic_demo_cleaned_subset <- syr_arsenic_demo_cleaned %>%
     flowrate_gpm, 
     as_ug_l, 
     fe_ug_l, 
-    ph
+    ph,
+    is_wholesaler, 
+    seller_pwsid, 
+    seller_pws_name, 
+    seller_treatment_description, 
+    phone_number, 
+    email_address
   )
 
 #write_csv(syr_arsenic_demo_cleaned_subset, "data/cleaned/syr_arsenic_demo_site_cleaned.csv")
