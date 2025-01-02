@@ -15,17 +15,14 @@ arsenic_demo_sites <- read_csv("data/cleaned/arsenic_demo_site_pwsid.csv")
 
 # USER INTERFACE ----------------------------------------------------------
 ui <- navbarPage(
-  title = "Arsenic Data Visualization",
+  title = "Arsenic Demo Sites Data",
   theme = shinytheme("flatly"),
   
-  tabPanel("Plot",
+  tabPanel("Dashboard",
            tags$div(
              style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
              "In 2001, EPA lowered the arsenic standard in drinking water from 50 µg/L to 10 µg/L. 
-             EPA announced an initiative for research and development of more cost-effective treatment technologies and to provide technical assistance to operators of small systems to reduce compliance cost.
-             The first plot shows arsenic concentrations across all selected demo sites and their current activity status. 
-             The second plot displays yearly average arsenic data for each demo site. 
-             The third plot shows similar data, but aggregated by six-year review periods. Hover on data points for more facility details."
+             EPA announced an initiative for research and development of more cost-effective treatment technologies and to provide technical assistance to operators of small systems to reduce compliance cost."
            ),
            br(),
            sidebarLayout(
@@ -33,7 +30,7 @@ ui <- navbarPage(
                tags$h3("Demo Sites"),
                multiInput(
                  inputId = "system_name_demo_site",
-                 label = "Demo Site:",
+                 label = "Site Name:",
                  choices = NULL,
                  choiceNames = unique(syr_arsenic$system_name_demo_site),
                  choiceValues = unique(syr_arsenic$system_name_demo_site)
@@ -83,27 +80,59 @@ ui <- navbarPage(
                )
              ),
              mainPanel(
-               plotlyOutput("arsenic_plot"),
-               hr(),
-               plotlyOutput("arsenic_scatter_plot"),
-               hr(),
-               plotlyOutput("arsenic_data_source_plot") # New plot added here
+               tabsetPanel(
+                 tabPanel(
+                   "Plots",
+                   tags$div(
+                     style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
+                     "This section displays arsenic data plots. Hover over points for detailed information. Click 'Download' tool on upper right corner of the plot to export plot as png."
+                   ),
+                   br(),
+                   br(),
+                   tags$div(
+                     style = "font-size: 14px; margin-top: -10px;",
+                     "The plot below shows arsenic concentrations across all selected demo sites and their current activity status."
+                   ),
+                   br(),
+                   plotlyOutput("arsenic_plot"),
+                   br(),
+                   tags$div(
+                     style = "font-size: 14px; margin-top: -10px;",
+                     "The plot below displays yearly average arsenic data for each demo site. Double-click individual Demo Site(s) in the legend, then single-click to select multiple, to isolate Demo Sites of interest on the plot. Click once again on the selected Demo Site(s) to hide."
+                   ),
+                   br(),
+                   plotlyOutput("arsenic_scatter_plot"),
+                   br(),
+                   tags$div(
+                     style = "font-size: 14px; margin-top: -10px;",
+                     "The plot below shows similar data, but aggregated by six-year review periods."
+                   ),
+                   br(),
+                   plotlyOutput("arsenic_data_source_plot")
+                 ),
+                 tabPanel(
+                   "Data Downloads",
+                   tags$div(
+                     style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
+                     "This section provides downloadable data summaries."
+                   ),
+                   br(),
+                   fluidRow(
+                     column(6, h4("Filtered Arsenic Data Table")),
+                     column(6, downloadButton("download_filtered_data", "Download Filtered Data"))
+                   ),
+                   DTOutput("table_filtered_data"),
+                   br(),
+                   br(),
+                   fluidRow(
+                     column(6, h4("Aggregated Arsenic Data Table")),
+                     column(6, downloadButton("download_aggregated_data", "Download Aggregated Data"))
+                   ),
+                   DTOutput("table_aggregated_data")
+                 )
+               )
              )
            )
-  ),
-  
-  tabPanel("Data Downloads",
-           fluidRow(
-             column(6, h4("Filtered Arsenic Data Table")),
-             column(6, downloadButton(outputId = "download_filtered_data", label = "Download Filtered Data"))
-           ),
-           DTOutput("table_filtered_data"),
-           br(),
-           fluidRow(
-             column(6, h4("Aggregated Arsenic Data Table")),
-             column(6, downloadButton(outputId = "download_aggregated_data", label = "Download Aggregated Data"))
-           ),
-           DTOutput("table_aggregated_data")
   ),
   
   tabPanel("Map",
@@ -337,7 +366,9 @@ server <- function(input, output, session) {
       hoverinfo = 'text'
     ) %>%
       layout(
-        title = "Yearly Mean Arsenic Levels by Demo Site",
+        title = list(text = "Yearly Mean Arsenic Levels by Demo Site",
+                     x = 0.36, # Align to the left
+                     xanchor = "center"),
         xaxis = list(title = "Year"),
         yaxis = list(title = "Mean Arsenic Conc. (µg/L)"),
         shapes = list(
@@ -358,7 +389,7 @@ server <- function(input, output, session) {
             line = list(color = "red", dash = "dash")
           )
         ),
-        legend = list(title = list(text = "Demo Sites and Activity Status"))
+        legend = list(title = list(text = "Demo Sites"))
       )
   })
   
@@ -420,12 +451,15 @@ server <- function(input, output, session) {
       hoverinfo = 'text'
     ) %>%
       layout(
-        title = "Arsenic Levels by Data Source",
+        title = list(text = "Arsenic Levels by Data Source",
+                     x = 0.36, # Align to the left
+                     xanchor = "center"),
         xaxis = list(title = "Data Source"),
         yaxis = list(
           title = "Mean Arsenic Conc. (µg/L)",
           range = c(0, max_y) # Setting y-axis limit
-        )
+        ),
+    legend = list(title = list(text = "Demo Sites"))
       )
   })
 
