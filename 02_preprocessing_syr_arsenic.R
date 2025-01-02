@@ -28,7 +28,7 @@ arsenic_demo <- arsenic_demo %>%
 #write_csv(arsenic_demo,"data/SDWIS_arsenic_demo.csv")
 
 # Six Year Review ---------------------------------------------------------
-syr_arsenic_raw <- read_xlsx("data/raw/syr_arsenic_data/syr_arsenic.xlsx") # data-preprocessed (see SYR_data_R_script.R)
+syr_arsenic_raw <- read_csv("data/raw/syr_arsenic_data/syr_arsenic.csv") # data-preprocessed (see SYR_data_R_script.R)
 syr_arsenic <- syr_arsenic_raw %>%
   clean_names(case = "snake")
 syr_arsenic <- syr_arsenic %>%
@@ -93,17 +93,22 @@ facility_report <- facility_report %>%
 ## get treatment info
 arsenic_demo_facility_treatment <- facility_report %>%
   filter(
-    # Ensure facility_deactivation_date is either NA or >= 2000-01-01
-    is.na(facility_deactivation_date) | dmy(facility_deactivation_date) >= as.Date("2000-01-01")
+    # Ensure deactivation_date is either NA or >= 2000-01-01
+    is.na(deactivation_date) | dmy(deactivation_date) >= as.Date("2000-01-01")
   ) %>%
   filter(
     facility_type_description == "Treatment Plant" & 
       facility_type_code == "TP" & 
       (str_detect(tolower(facility_name), "arsenic") |	
          str_detect(tolower(facility_id), "treated") |
+         str_detect(tolower(treatment_process), "ion exchange") |
+         str_detect(tolower(treatment_process), "filtration") |
+         str_detect(tolower(treatment_process), "activated") |
+         str_detect(tolower(treatment_process), "osmosis") |
          str_detect(tolower(treatment_process), "inonovative") |
          str_detect(tolower(treatment_objective), "inorganics removal") |
          str_detect(tolower(facility_id), "t") | 
+         str_detect(tolower(facility_name), "treat") |
          str_detect(tolower(facility_name), "treatment plant") | 
          str_detect(tolower(facility_name), "treatment facility") | 
          str_detect(tolower(facility_name), "plant") | 
@@ -131,9 +136,9 @@ arsenic_demo_facility_treatment <- facility_report %>%
     } else {
       paste(unique(treatment_process[!is.na(treatment_process)]), collapse = ", ")
     },
-    facility_deactivation_date = {
+    deactivation_date = {
       # Filter for "arsenic" facilities first
-      arsenic_dates <- facility_deactivation_date[
+      arsenic_dates <- deactivation_date[
         str_detect(tolower(facility_name), "arsenic")
       ]
       if (length(arsenic_dates) > 0) {
@@ -145,7 +150,7 @@ arsenic_demo_facility_treatment <- facility_report %>%
         }
       } else {
         # Fallback to any other valid dates
-        fallback_dates <- facility_deactivation_date[!is.na(facility_deactivation_date)]
+        fallback_dates <- deactivation_date[!is.na(deactivation_date)]
         if (length(fallback_dates) > 0) {
           paste(unique(fallback_dates), collapse = ", ")
         } else {
@@ -390,9 +395,23 @@ arsenic_demo_site_matched_pwsid <- arsenic_demo_site_matched_pwsid %>%
     flowrate_gpm,
     as_ug_l,
     fe_ug_l,
-    ph
+    ph,
+    activity_status,
+    deactivation_date
   )
 
+arsenic_demo_site_matched_pwsid <- arsenic_demo_site_matched_pwsid %>%
+  left_join(
+    arsenic_demo_facility_treatment %>% select(pwsid, activity_status, deactivation_date),
+    by = "pwsid"
+  ) %>%
+  mutate(
+    activity_status = coalesce(activity_status.y, activity_status.x),
+    deactivation_date = coalesce(deactivation_date.y, deactivation_date.x)
+  ) %>%
+  select(-activity_status.x, -activity_status.y, -deactivation_date.x, -deactivation_date.y)
+
+  
 #write_csv(arsenic_demo_site_matched_pwsid, "data/cleaned/arsenic_demo_site_pwsid.csv")
 
 syr_arsenic_demo_cleaned <- syr_arsenic_cleaned_names %>%
@@ -414,9 +433,10 @@ syr_arsenic_demo_cleaned_subset <- syr_arsenic_demo_cleaned %>%
     analyte_name, 
     primacy_code, 
     state_code = state_code.x, 
-    activity_status,
-    activity_status_code,
     system_name = site_name, 
+    activity_status = activity_status.x,
+    activity_status_code,
+    deactivation_date = deactivation_date.x,
     system_type, 
     retail_population_served, 
     adjusted_total_population_served, 
@@ -435,15 +455,10 @@ syr_arsenic_demo_cleaned_subset <- syr_arsenic_demo_cleaned %>%
     unit, 
     value_mg_l = value,
     value_ug_l,
-    pws_name, 
-    treatment_objective_code, 
-    treatment_process_code, 
-    facility_deactivation_date, 
-    treatment_objective_code, 
-    treatment_process_code, 
     treatment_objective, 
+    treatment_objective_code, 
     treatment_process, 
-    facility_deactivation_date, 
+    treatment_process_code, 
     site_name, 
     system_name_demo_site, 
     technology_media, 
@@ -477,6 +492,7 @@ unique_pwsid_na_activity_status
 # Perform analysis with syr_arsenic_demo_site_cleaned ---------------------
 data <- read_csv("data/cleaned/syr_arsenic_demo_site_cleaned.csv") 
 # continue: go to ShinyApp script and build dashboard using this metadataset
+
 
 # Violation ---------------------------------------------------------------
 sdwis_violation_arsenic <- read_csv("data/raw/sdwis_violation_arsenic_data/sdwis_violation_arsenic_20240807.csv")
