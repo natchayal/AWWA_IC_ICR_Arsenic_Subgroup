@@ -37,6 +37,29 @@ violation_arsenic <- violation_arsenic %>%
   ) %>%
   select(pwsid, pws_name, everything(), -site_name)  # Reorder columns and remove `site_name`
 
+# Step 1: Extract unique rows by `pwsid` and `compl_per_begin_date` where `rtc_date` is NA
+unique_violation_arsenic <- violation_arsenic %>%
+  filter(is.na(rtc_date)) %>%
+  distinct(pwsid, compl_per_begin_date, .keep_all = TRUE) %>%
+  arrange(pwsid, compl_per_begin_date)  # Ensure chronological order
+
+# Step 2: Create a lookup table for the next strictly later `compl_per_begin_date`
+next_date_lookup <- unique_violation_arsenic %>%
+  group_by(pwsid) %>%
+  mutate(next_date = lead(compl_per_begin_date)) %>%  # Get the next date within each group
+  ungroup() %>%
+  select(pwsid, compl_per_begin_date, next_date)
+
+# Step 3: Left join the original dataset with the lookup table to assign `rtc_date`
+violation_arsenic <- violation_arsenic %>%
+  left_join(next_date_lookup, by = c("pwsid", "compl_per_begin_date")) %>%
+  mutate(
+    compl_per_begin_date = as.Date(compl_per_begin_date),
+    compl_per_end_date = as.Date(compl_per_end_date),
+    rtc_date = if_else(is.na(rtc_date), next_date, rtc_date)  # Use next_date if rtc_date is NA
+  ) %>%
+  select(-next_date)  # Remove the temporary next_date column
+
 
 # Extract unique violation_category_code and map descriptions
 violation_category_code_unique <- violation_arsenic %>%
@@ -137,8 +160,7 @@ ui <- navbarPage(
                      style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
                      "This section displays arsenic data plots. Hover over points for detailed information. Click 'Download' tool on upper right corner of the plot to export plot as png."
                    ),
-                   br(),
-                   br(),
+                   tags$hr(style = "border: 1px solid black; margin: 20px 0;"),
                    tags$div(
                      style = "font-size: 14px; margin-top: -10px;",
                      "The plot below shows arsenic concentrations across all selected demo sites and their current activity status."
@@ -146,6 +168,7 @@ ui <- navbarPage(
                    br(),
                    plotlyOutput("arsenic_plot"),
                    br(),
+                   tags$hr(style = "border: 1px solid black; margin: 20px 0;"),
                    tags$div(
                      style = "font-size: 14px; margin-top: -10px;",
                      "The plot below displays yearly average arsenic data for each demo site. Double-click individual Demo Site(s) in the legend, then single-click to select multiple, to isolate Demo Sites of interest on the plot. Click once again on the selected Demo Site(s) to hide."
@@ -153,12 +176,16 @@ ui <- navbarPage(
                    br(),
                    plotlyOutput("arsenic_scatter_plot"),
                    br(),
+                   tags$hr(style = "border: 1px solid black; margin: 20px 0;"),
                    tags$div(
                      style = "font-size: 14px; margin-top: -10px;",
                      "The plot below shows similar data, but aggregated by six-year review periods."
                    ),
                    br(),
-                   plotlyOutput("arsenic_data_source_plot")
+                   plotlyOutput("arsenic_data_source_plot"),
+                   br(),
+                   br(),
+                   br()
                  ),
                  tabPanel(
                    "Data Downloads",
@@ -249,11 +276,13 @@ ui <- navbarPage(
                      style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
                      "This section displays violation count plots aggregated by the selected time interval (year, quarter, or month). Hover over points for detailed information."
                    ),
-                   br(),
+                   tags$hr(style = "border: 1px solid black; margin: 20px 0;"),
                    plotlyOutput("violation_plot"),
                    br(),
+                   tags$hr(style = "border: 1px solid black; margin: 20px 0;"),
                    tabPanel("Time in Compliance", plotlyOutput("time_in_compliance_plot")),
                    br(),
+                   tags$hr(style = "border: 1px solid black; margin: 20px 0;"),
                    tabPanel("Time to Return to Compliance", plotlyOutput("time_to_return_to_compliance_plot"))
                  ),
                  tabPanel(
@@ -348,7 +377,8 @@ ui <- navbarPage(
                       tags$a(href = "https://shiny.rstudio.com/", target = "_blank", "shiny"),
                       " package."),
                     p("Demo Sites were identified without Public Water System Identification (PWSID) and matched to PWSIDs using data from the Federal Facility Report. Fuzzy matching techniques included substring matching, token matching, and incorporation of two-letter state IDs. PWSID-matched facilities were supplemented with additional metadata through a left join with the Federal Facility Report, incorporating activity and status information."),
-                    p("The supplemented demo site data was then left-joined with arsenic sampling data by PWSID to create a comprehensive metadata table. This table includes demo site information, facility details, and arsenic sampling data, forming the basis for subsequent analysis. Data referenced is available in the 'Data Downloads' tab.")
+                    p("The supplemented demo site data was then left-joined with arsenic sampling data by PWSID to create a comprehensive metadata table. This table includes demo site information, facility details, and arsenic sampling data, forming the basis for subsequent analysis. Data referenced is available in the 'Data Downloads' tab."),
+                    p("Missing rtc_date values in the violation dataset were systematically replaced with the next strictly later compl_per_begin_date within the same pwsid, as this was necessary to calculate the time to return to compliance.")
              )
            )
   )
@@ -853,8 +883,7 @@ server <- function(input, output, session) {
   output$time_in_compliance_plot <- renderPlotly({
     data <- compliance_durations_data()
     
-    plot_ly(data, x = ~aggregate_time, y = ~avg_time_in_compliance, type = 'bar', name = 'Average Time in Compliance') %>%
-      layout(
+    plot_ly(data, x = ~aggregate_time, y = ~avg_time_in_compliance, type = 'scatter', mode = 'lines+markers', name = 'Average Time in Compliance') %>%      layout(
         title = "Time in Compliance",
         xaxis = list(title = "Time Period"),
         yaxis = list(
@@ -871,7 +900,7 @@ server <- function(input, output, session) {
   output$time_to_return_to_compliance_plot <- renderPlotly({
     data <- compliance_durations_data()
     
-    plot_ly(data, x = ~aggregate_time, y = ~avg_time_to_return_to_compliance, type = 'bar', name = 'Average Time to Return to Compliance') %>%
+    plot_ly(data, x = ~aggregate_time, y = ~avg_time_to_return_to_compliance, type = 'scatter', mode = 'lines+markers', name = 'Average Time to Return to Compliance') %>%
       layout(
         title = "Time to Return to Compliance",
         xaxis = list(title = "Time Period"),
