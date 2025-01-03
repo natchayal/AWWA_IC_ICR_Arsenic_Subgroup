@@ -1,3 +1,13 @@
+---
+# Title: Drinking Water Quality Explorer for Arsenic IC ICR Subgroup
+# Description: Shiny App
+# author: Natchaya Luangphairin
+# date last revised: 1/2/25
+# output: app.R
+---
+
+# Load pre-processed data from script/data_preprocessing.R output in data folder
+# Load packages and libraries ---------------------------------------------
 if (!require("pacman")) install.packages("pacman"); library(pacman) #p_boot()
 p_load(shiny, tidyverse, janitor, skimr, plotly, shinythemes, shinyWidgets, maps, viridis, DT, writexl, CausalImpact, data.table, tictoc, zoo, shinyBS)
 
@@ -13,16 +23,51 @@ syr_arsenic <- syr_arsenic_cleaned %>%
 
 arsenic_demo_sites <- read_csv("data/cleaned/arsenic_demo_site_pwsid.csv")
 
+sdwa_ref_code_values <- read_csv("data/raw/syr_arsenic_data/SDWA_REF_CODE_VALUES.csv")
+names(sdwa_ref_code_values) <- tolower(names(sdwa_ref_code_values))
+sdwa_ref_code_values$value_type <- tolower(sdwa_ref_code_values$value_type)
+
+violation_arsenic <- read_csv("data/cleaned/violation_arsenic_demo_site_cleaned.csv")
+violation_arsenic <- violation_arsenic %>%
+  mutate(
+    compl_per_begin_date = as.Date(compl_per_begin_date),
+    compl_per_end_date = as.Date(compl_per_end_date),
+    rtc_date = as.Date(rtc_date),
+    pws_name = site_name  # Create `pws_name` as a copy of `site_name`
+  ) %>%
+  select(pwsid, pws_name, everything(), -site_name)  # Reorder columns and remove `site_name`
+
+
+# Extract unique violation_category_code and map descriptions
+violation_category_code_unique <- violation_arsenic %>%
+  select(violation_category_code) %>%
+  distinct()
+
+violation_category_code_mapping <- violation_category_code_unique %>%
+  left_join(
+    sdwa_ref_code_values %>%
+      filter(value_type == "violation_category_code") %>%
+      select(value_code, value_description),
+    by = c("violation_category_code" = "value_code")
+  ) %>%
+  rename(
+    display = value_description,
+    value = violation_category_code
+  ) %>%
+  filter(!is.na(display)) # Remove rows with no matching description
+
+
 # USER INTERFACE ----------------------------------------------------------
 ui <- navbarPage(
   title = "Arsenic Demo Sites Data",
   theme = shinytheme("flatly"),
   
-  tabPanel("Dashboard",
+
+  ## SYR ---------------------------------------------------------------------
+  tabPanel("Occurrence Dashboard",
            tags$div(
-             style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
-             "In 2001, EPA lowered the arsenic standard in drinking water from 50 µg/L to 10 µg/L. 
-             EPA announced an initiative for research and development of more cost-effective treatment technologies and to provide technical assistance to operators of small systems to reduce compliance cost."
+             style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 11px;",
+             "On January 22, 2001, the EPA lowered the arsenic standard in drinking water from 50 µg/L to 10 µg/L. To support this change, the EPA initiated a program for research and development of more cost-effective treatment technologies and provided technical assistance to operators of small systems to help reduce compliance costs. This Dashboard is an independently developed tool to explore data from this study. It is not affiliated with the EPA and integrates publicly available water-quality data from multiple sources, including the United States Geological Survey (USGS), the Environmental Protection Agency (EPA), and other local agencies."
            ),
            br(),
            sidebarLayout(
@@ -72,6 +117,11 @@ ui <- navbarPage(
                  min = "1990-01-01", 
                  max = Sys.Date()
                ),
+               tags$div(
+                 style = "font-size: 12px; color: gray; margin-top: -5px; font-style: italic;",
+                 "Can leave blank to remove the marked line."
+               ),
+               br(),
                radioButtons(
                  "aggregate_by",
                  "Aggregate Data By:",
@@ -135,18 +185,146 @@ ui <- navbarPage(
            )
   ),
   
+  ## Violation ---------------------------------------------------------------
+  tabPanel("Violation Dashboard",
+           tags$div(
+             style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 11px;",
+             "On January 22, 2001, the EPA lowered the arsenic standard in drinking water from 50 µg/L to 10 µg/L. To support this change, the EPA initiated a program for research and development of more cost-effective treatment technologies and provided technical assistance to operators of small systems to help reduce compliance costs. This Dashboard is an independently developed tool to explore data from this study. It is not affiliated with the EPA and integrates publicly available water-quality data from multiple sources, including the United States Geological Survey (USGS), the Environmental Protection Agency (EPA), and other local agencies."
+           ),
+           br(),
+           sidebarLayout(
+             sidebarPanel(
+               tags$h3("Demo Sites"),
+               multiInput(
+                 inputId = "system_name_demo_site_violation",
+                 label = "Site Name:",
+                 choices = NULL,
+                 choiceNames = unique(violation_arsenic$system_name_demo_site),
+                 choiceValues = unique(violation_arsenic$system_name_demo_site)
+               ),
+               checkboxInput(inputId = "select_all_system_name_demo_site_violation", label = "Select All Demo Sites", value = TRUE),
+               multiInput(
+                 inputId = "technology_media_violation",
+                 label = "Technology Media:",
+                 choices = NULL,
+                 choiceNames = unique(violation_arsenic$technology_media),
+                 choiceValues = unique(violation_arsenic$technology_media)
+               ),
+               checkboxInput(inputId = "select_all_technology_media_violation", label = "Select All Treatment Technology", value = TRUE
+               ),
+               multiInput(
+                 inputId = "violation_category_code",
+                 label = "Violation Category Code:",
+                 choices = NULL,
+                 choiceNames = violation_category_code_mapping$display,
+                 choiceValues = violation_category_code_mapping$value
+               ),
+               checkboxInput(inputId = "select_all_violation_category", label = "Select All Violation Categories", value = TRUE),
+               selectInput(
+                 inputId = "activity_status_violation",
+                 label = "Activity Status:",
+                 choices = c("All", "Active", "Inactive", "Changed from public to non-public", "Merged with another system"),
+                 selected = "All"
+               ),
+               dateRangeInput(
+                 inputId = "violation_date_range",
+                 label = "Select Date Range:",
+                 start = "1998-01-01",
+                 end = "2020-01-01",
+                 min = "1990-01-01",
+                 max = Sys.Date()
+               ),
+               radioButtons(
+                 inputId = "aggregate_by_violation",
+                 label = "Aggregate Data By:",
+                 choices = list("Year" = "year", "Quarter" = "quarter", "Month" = "month"),
+                 selected = "year"
+               )
+             ),
+             mainPanel(
+               tabsetPanel(
+                 tabPanel(
+                   "Plots",
+                   tags$div(
+                     style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
+                     "This section displays violation count plots aggregated by the selected time interval (year, quarter, or month). Hover over points for detailed information."
+                   ),
+                   br(),
+                   plotlyOutput("violation_plot"),
+                   br(),
+                   tabPanel("Time in Compliance", plotlyOutput("time_in_compliance_plot")),
+                   br(),
+                   tabPanel("Time to Return to Compliance", plotlyOutput("time_to_return_to_compliance_plot"))
+                 ),
+                 tabPanel(
+                   "Data Downloads",
+                   tags$div(
+                     style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 14px;",
+                     "This section provides downloadable data summaries."
+                   ),
+                   br(),
+                   fluidRow(
+                     column(6, h4("Filtered Violation Data Table")),
+                     column(6, downloadButton("download_filtered_arsenic_violation", "Download Filtered Data"))
+                   ),
+                   DTOutput("table_filtered_arsenic_violation"),
+                   br(),
+                   br(),
+                   fluidRow(
+                     column(6, h4("Aggregated Violation Data Table")),
+                     column(6, downloadButton("download_aggregated_arsenic_violation", "Download Aggregated Data"))
+                   ),
+                   DTOutput("table_aggregated_arsenic_violation")
+                 )
+               )
+             )
+           )
+  ),
+  
+
+  ## Maps --------------------------------------------------------------------
   tabPanel("Map",
+           tags$div(
+             style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 11px;",
+             "On January 22, 2001, the EPA lowered the arsenic standard in drinking water from 50 µg/L to 10 µg/L. To support this change, the EPA initiated a program for research and development of more cost-effective treatment technologies and provided technical assistance to operators of small systems to help reduce compliance costs. This Dashboard is an independently developed tool to explore data from this study. It is not affiliated with the EPA and integrates publicly available water-quality data from multiple sources, including the United States Geological Survey (USGS), the Environmental Protection Agency (EPA), and other local agencies."
+           ),
+           br(),
+           br(),
            fluidRow(
              column(12, 
                     img(src = "demo_site_map.png", width = "100%"),
                     alt = "Map of 50 Arsenic Demo Sites",
                     p("Source: ", a("Arsenic Treatment Technology Demonstrations", href = "https://www.epa.gov/water-research/arsenic-treatment-technology-demonstrations", target = "_blank")),
-                    p("IN PROGRESS"),
+                    p("MAP IN PROGRESS"),
              ),
+             br(),
+             br(),
+             tags$div(
+               style = "font-size: 16px; margin-top: -10px; text-align: center; font-weight: bold;",
+               "Summary of 50 Arsenic Removal Demonstration Locations, Technologies, and Source Water Quality"
+             ),
+             br(),
+             column(
+               width = 12,
+               DTOutput("demo_sites_table"),  # Table output
+               br(),
+               tags$div(
+                 style = "font-size: 10px; margin-top: -10px;",
+                 "AM = adsorptive media process; CF = coagulation/filtration; IR = iron removal; IR/IA = iron removal with iron addition; IX = ion exchange process; RO = reverse osmosis; ATS = Aquatic Treatment Systems; MEI = Magnesium Elektron, Inc.; STS = Severn Trent Services"
+               ),
+               br(),
+               downloadButton("download_demo_sites", "Download Demo Sites Data"),  # Download button
+             )
            )
   ),
+  
+
+  ## Data and Methods --------------------------------------------------------
   tabPanel("Data and Methods",
-           p("This Dashboard is an independently developed tool that is not affiliated with the EPA. It integrates publicly available water-quality data from multiple sources, including the United States Geological Survey (USGS), the Environmental Protection Agency (EPA), and other local agencies."),
+           tags$div(
+             style = "padding: 10px; background-color: #f8f9fa; border-bottom: 1px solid #ddd; font-size: 11px;",
+             "On January 22, 2001, the EPA lowered the arsenic standard in drinking water from 50 µg/L to 10 µg/L. To support this change, the EPA initiated a program for research and development of more cost-effective treatment technologies and provided technical assistance to operators of small systems to help reduce compliance costs. This Dashboard is an independently developed tool to explore data from this study. It is not affiliated with the EPA and integrates publicly available water-quality data from multiple sources, including the United States Geological Survey (USGS), the Environmental Protection Agency (EPA), and other local agencies."
+           ),
            hr(),
            fluidRow(
              column(6,
@@ -156,8 +334,8 @@ ui <- navbarPage(
                       ". It contains facility info and water quality violation and occurrence data from the Safe Drinking Water Information System (SDWIS) Federal Reporting Services",
                       tags$a(href = "https://sdwis.epa.gov/ords/sfdw_pub/r/sfdw/sdwis_fed_reports_public/6?p6_report=FAC", target = "_blank", "SDWIS Federal Reports"), ". Note: Potential lag in reporting as EPA updates data quarterly. There are some inaccuracies and underreporting of some data. EPA is working to improve data quality. More info on publicly available drinking water databases can be found at this",
                       tags$a(href = "https://github.com/natchayal/Drinking-Water-Database", target = "_blank", "Github Repository"), ". SDWA Reference codes can be found in",
-                      tags$a(href = "https://echo.epa.gov/files/echodownloads/SDWA_latest_downloads.zip", target = "_blank", "SDWA Dataset (ZIP)"),". In 2001, EPA adopted a new standard lowering the permissible amount of arsenic in drinking water from 50 micrograms per liter (µg/L) to 10 µg/L. To help states meet this new standard, EPA announced an initiative for research and development of more cost-effective treatment technologies and to provide technical assistance to operators of small systems to reduce compliance cost. The major portion of details pertaining to the demo sites were taken from",
-                      tags$a(href = "https://www.epa.gov/water-research/arsenic-treatment-technology-demonstrations", target = "_blank", "EPA Arsenic Demo Site Report"),".",
+                      tags$a(href = "https://echo.epa.gov/files/echodownloads/SDWA_latest_downloads.zip", target = "_blank", "SDWA Dataset (ZIP)"),". The major portion of details pertaining to the demo sites were taken from",
+                      tags$a(href = "https://www.epa.gov/water-research/arsenic-treatment-technology-demonstrations", target = "_blank", "EPA Arsenic Demo Site Report"),"."
                     )
              ),
              column(6,
@@ -168,15 +346,20 @@ ui <- navbarPage(
                       tags$a(href = "https://ggplot2.tidyverse.org/", target = "_blank", "ggplot2"),
                       " packages. The app was built using the ",
                       tags$a(href = "https://shiny.rstudio.com/", target = "_blank", "shiny"),
-                      " package.")
+                      " package."),
+                    p("Demo Sites were identified without Public Water System Identification (PWSID) and matched to PWSIDs using data from the Federal Facility Report. Fuzzy matching techniques included substring matching, token matching, and incorporation of two-letter state IDs. PWSID-matched facilities were supplemented with additional metadata through a left join with the Federal Facility Report, incorporating activity and status information."),
+                    p("The supplemented demo site data was then left-joined with arsenic sampling data by PWSID to create a comprehensive metadata table. This table includes demo site information, facility details, and arsenic sampling data, forming the basis for subsequent analysis. Data referenced is available in the 'Data Downloads' tab.")
              )
            )
   )
 )
-  
+
 
 # SERVER ------------------------------------------------------------------
 server <- function(input, output, session) {
+  
+
+# SYR ---------------------------------------------------------------------
   # Handle "Select All" for system_name_demo_site
   observeEvent(input$select_all_system_name_demo_site, {
     if (input$select_all_system_name_demo_site) {
@@ -185,7 +368,6 @@ server <- function(input, output, session) {
       updateMultiInput(session, "system_name_demo_site", selected = character(0))
     }
   })
-  
   
   system_name_demo_site <- reactive({
     if (input$select_all_system_name_demo_site) {
@@ -252,7 +434,7 @@ server <- function(input, output, session) {
     }
     
     data %>%
-      group_by(system_name_demo_site, aggregate_time, x_label) %>%
+      group_by(system_name_demo_site, technology_media, aggregate_time, x_label) %>%
       summarise(
         pwsid_mean_value = round(mean(value_ug_l, na.rm = TRUE), 2),
         pwsid_min_value = round(min(value_ug_l, na.rm = TRUE), 2),
@@ -262,6 +444,8 @@ server <- function(input, output, session) {
       ) %>%
       group_by(aggregate_time, x_label) %>%
       summarise(
+        system_name_demo_site = paste(unique(system_name_demo_site), collapse = ", "),
+        technology_media = paste(unique(technology_media), collapse = ", "),
         mean_value = round(mean(pwsid_mean_value, na.rm = TRUE), 2),
         min_value = round(min(pwsid_min_value, na.rm = TRUE), 2),
         max_value = round(max(pwsid_max_value, na.rm = TRUE), 2),
@@ -337,6 +521,7 @@ server <- function(input, output, session) {
         .groups = 'drop'
       ) 
     
+    
     plot_ly(
       data = scatter_data,
       x = ~year,
@@ -379,24 +564,17 @@ server <- function(input, output, session) {
             y0 = 0,
             y1 = ceiling(max(scatter_data$mean_value, na.rm = TRUE) / 10) * 10,
             line = list(color = "red", dash = "dash")
-          ),
-          list(
-            type = "line",
-            x0 = 2001,
-            x1 = 2001,
-            y0 = 0,
-            y1 = ceiling(max(scatter_data$mean_value, na.rm = TRUE) / 10) * 10,
-            line = list(color = "red", dash = "dash")
           )
         ),
         legend = list(title = list(text = "Demo Sites"))
       )
+    
   })
   
   
-
-# by SYR ------------------------------------------------------------------
-
+  
+  # by SYR ------------------------------------------------------------------
+  
   output$arsenic_data_source_plot <- renderPlotly({
     scatter_data <- syr_arsenic %>%
       filter(
@@ -459,13 +637,13 @@ server <- function(input, output, session) {
           title = "Mean Arsenic Conc. (µg/L)",
           range = c(0, max_y) # Setting y-axis limit
         ),
-    legend = list(title = list(text = "Demo Sites"))
+        legend = list(title = list(text = "Demo Sites"))
       )
   })
-
   
-
-# Tables ------------------------------------------------------------------
+  
+  
+  # Tables ------------------------------------------------------------------
   
   # Render filtered data table
   output$table_filtered_data <- renderDT({
@@ -474,8 +652,35 @@ server <- function(input, output, session) {
   
   # Render aggregated data table
   output$table_aggregated_data <- renderDT({
-    datatable(aggregated_data() %>% select(-c("x_label")), options = list(pageLength = 5, scrollX = TRUE))
+    datatable(
+      aggregated_data() %>% 
+        mutate(
+          # Truncate long content for display
+          system_name_demo_site = ifelse(nchar(system_name_demo_site) > 30, 
+                              paste0(substr(system_name_demo_site, 1, 30), "..."), 
+                              system_name_demo_site),
+          technology_media = ifelse(nchar(technology_media) > 30, 
+                                   paste0(substr(technology_media, 1, 30), "..."), 
+                                   technology_media)
+        ) %>%
+        select(-c("x_label")),
+      options = list(pageLength = 5, scrollX = TRUE),
+      rownames = FALSE,
+      colnames = c(
+        "Time Period",
+        "Selected Demo Sites",
+        "Treatment Technology",
+        "Mean Value (µg/L)",
+        "Min Value (µg/L)",
+        "Max Value (µg/L)",
+        "95th Percentile (µg/L)"
+      )
+    )
   })
+  
+  
+
+  
   
   # Download CSV for all filtered data
   output$download_filtered_data <- downloadHandler(
@@ -496,7 +701,277 @@ server <- function(input, output, session) {
       write.csv(aggregated_data(), file, row.names = FALSE)
     }
   )
+
+  
+  
+  # Violation ---------------------------------------------------------------
+  # Handle "Select All" for system_name_demo_site_violation
+  observeEvent(input$select_all_system_name_demo_site_violation, {
+    if (input$select_all_system_name_demo_site_violation) {
+      updateMultiInput(session, "system_name_demo_site_violation", selected = unique(violation_arsenic$system_name_demo_site))
+    } else {
+      updateMultiInput(session, "system_name_demo_site_violation", selected = character(0))
+    }
+  })
+  
+  system_name_demo_site_violation <- reactive({
+    if (input$select_all_system_name_demo_site_violation) {
+      c(unique(violation_arsenic$system_name_demo_site), NA)
+    } else {
+      input$system_name_demo_site_violation
+    }
+  })
+
+  
+  # Handle "Select All" for technology_media
+  observeEvent(input$select_all_technology_media_violation, {
+    if (input$select_all_technology_media_violation) {
+      updateMultiInput(session, "technology_media_violation", selected = unique(violation_arsenic$technology_media))
+    } else {
+      updateMultiInput(session, "technology_media_violation", selected = character(0))
+    }
+  })
+  
+  
+  technology_media_violation <- reactive({
+    if (input$select_all_technology_media_violation) {
+      c(unique(violation_arsenic$technology_media), NA)
+    } else {
+      input$technology_media_violation
+    }
+  })
+  
+  
+  # Handle "Select All" for violation_category_code
+  observeEvent(input$select_all_violation_category, {
+    if (input$select_all_violation_category) {
+      updateMultiInput(session, "violation_category_code", selected = unique(violation_arsenic$violation_category_code))
+    } else {
+      updateMultiInput(session, "violation_category_code", selected = character(0))
+    }
+  })
+  
+  # Reactive filtered data
+  filtered_violation_data <- reactive({
+    violation_arsenic %>%
+      # Convert viol_measure from mg/L to µg/L
+      mutate(viol_measure_ug_l = viol_measure * 1000) %>%
+      filter(
+        system_name_demo_site %in% input$system_name_demo_site_violation,
+        violation_category_code %in% input$violation_category_code,
+        (input$activity_status_violation == "All" | activity_status == input$activity_status_violation),
+        technology_media %in% input$technology_media_violation,
+        compl_per_begin_date >= input$violation_date_range[1],
+        compl_per_end_date <= input$violation_date_range[2]
+      )
+  })
+  
+  # Aggregated data for violation count and measures
+  aggregated_violation_data <- reactive({
+    data <- filtered_violation_data() %>%
+      mutate(
+        # Calculate durations
+        time_in_compliance_days = as.numeric(difftime(compl_per_end_date, compl_per_begin_date, units = "days")),
+        time_to_return_to_compliance_days = as.numeric(difftime(rtc_date, compl_per_end_date, units = "days")),
+        # Aggregate period based on user selection
+        aggregate_time = case_when(
+          input$aggregate_by_violation == "year" ~ as.character(year(compl_per_begin_date)),
+          input$aggregate_by_violation == "quarter" ~ paste0(year(compl_per_begin_date), "-Q", quarter(compl_per_begin_date)),
+          input$aggregate_by_violation == "month" ~ format(compl_per_begin_date, "%Y-%m"),
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      group_by(aggregate_time) %>%
+      summarise(
+        demo_sites = paste(unique(system_name_demo_site), collapse = ", "),
+        technology_media = paste(unique(technology_media), collapse = ", "),
+        total_violations = n(),
+        avg_violation_measure = round(mean(viol_measure_ug_l, na.rm = TRUE), 2),
+        avg_time_in_compliance = case_when(
+          input$aggregate_by_violation == "year" ~ round(mean(time_in_compliance_days, na.rm = TRUE) / 365, 2),
+          input$aggregate_by_violation == "quarter" ~ round(mean(time_in_compliance_days, na.rm = TRUE) / 90, 2),
+          input$aggregate_by_violation == "month" ~ round(mean(time_in_compliance_days, na.rm = TRUE) / 30, 2)
+        ),
+        avg_time_to_return_to_compliance = case_when(
+          input$aggregate_by_violation == "year" ~ round(mean(time_to_return_to_compliance_days, na.rm = TRUE) / 365, 2),
+          input$aggregate_by_violation == "quarter" ~ round(mean(time_to_return_to_compliance_days, na.rm = TRUE) / 90, 2),
+          input$aggregate_by_violation == "month" ~ round(mean(time_to_return_to_compliance_days, na.rm = TRUE) / 30, 2)
+        ),
+        .groups = "drop"
+      )
+    return(data)
+  })
+  
+  
+  
+  # Plot: Total Violation Count
+  output$violation_plot <- renderPlotly({
+    data <- aggregated_violation_data()
+    
+    plot_ly(data, x = ~aggregate_time, y = ~total_violations, type = 'bar', name = 'Total Violations') %>%
+      layout(
+        title = "Total Violation Count Over Time",
+        xaxis = list(title = "Time Period"),
+        yaxis = list(title = "Violation Count"),
+        barmode = "stack"
+      )
+  })
+  
+  compliance_durations_data <- reactive({
+    data <- filtered_violation_data() %>%
+      mutate(
+        # Calculate time in compliance and time to return to compliance
+        time_in_compliance_days = as.numeric(difftime(compl_per_end_date, compl_per_begin_date, units = "days")),
+        time_to_return_to_compliance_days = as.numeric(difftime(rtc_date, compl_per_end_date, units = "days")),
+        # Aggregate period based on user selection
+        aggregate_time = case_when(
+          input$aggregate_by_violation == "year" ~ as.character(year(compl_per_begin_date)),
+          input$aggregate_by_violation == "quarter" ~ paste0(year(compl_per_begin_date), "-Q", quarter(compl_per_begin_date)),
+          input$aggregate_by_violation == "month" ~ format(compl_per_begin_date, "%Y-%m"),
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      filter(!is.na(time_in_compliance_days) & !is.na(time_to_return_to_compliance_days)) %>% # Exclude rows with missing data
+      group_by(aggregate_time) %>%
+      summarise(
+        avg_time_in_compliance = case_when(
+          input$aggregate_by_violation == "year" ~ round(mean(time_in_compliance_days, na.rm = TRUE) / 365, 2),
+          input$aggregate_by_violation == "quarter" ~ round(mean(time_in_compliance_days, na.rm = TRUE) / 90, 2),
+          input$aggregate_by_violation == "month" ~ round(mean(time_in_compliance_days, na.rm = TRUE) / 30, 2)
+        ),
+        avg_time_to_return_to_compliance = case_when(
+          input$aggregate_by_violation == "year" ~ round(mean(time_to_return_to_compliance_days, na.rm = TRUE) / 365, 2),
+          input$aggregate_by_violation == "quarter" ~ round(mean(time_to_return_to_compliance_days, na.rm = TRUE) / 90, 2),
+          input$aggregate_by_violation == "month" ~ round(mean(time_to_return_to_compliance_days, na.rm = TRUE) / 30, 2)
+        ),
+        .groups = "drop"
+      )
+    return(data)
+  })
+  
+  
+  output$time_in_compliance_plot <- renderPlotly({
+    data <- compliance_durations_data()
+    
+    plot_ly(data, x = ~aggregate_time, y = ~avg_time_in_compliance, type = 'bar', name = 'Average Time in Compliance') %>%
+      layout(
+        title = "Time in Compliance",
+        xaxis = list(title = "Time Period"),
+        yaxis = list(
+          title = case_when(
+            input$aggregate_by_violation == "year" ~ "Duration (Years)",
+            input$aggregate_by_violation == "quarter" ~ "Duration (Quarters)",
+            input$aggregate_by_violation == "month" ~ "Duration (Months)"
+          )
+        ),
+        barmode = "group"
+      )
+  })
+  
+  output$time_to_return_to_compliance_plot <- renderPlotly({
+    data <- compliance_durations_data()
+    
+    plot_ly(data, x = ~aggregate_time, y = ~avg_time_to_return_to_compliance, type = 'bar', name = 'Average Time to Return to Compliance') %>%
+      layout(
+        title = "Time to Return to Compliance",
+        xaxis = list(title = "Time Period"),
+        yaxis = list(
+          title = case_when(
+            input$aggregate_by_violation == "year" ~ "Duration (Years)",
+            input$aggregate_by_violation == "quarter" ~ "Duration (Quarters)",
+            input$aggregate_by_violation == "month" ~ "Duration (Months)"
+          )
+        ),
+        barmode = "group"
+      )
+  })
+  
+
+  
+  # Render filtered data table
+  output$table_filtered_arsenic_violation <- renderDT({
+    datatable(
+      filtered_violation_data(),
+      options = list(pageLength = 5, scrollX = TRUE),
+      rownames = FALSE
+    )
+  })
+  
+  # Render aggregated data table
+  output$table_aggregated_arsenic_violation <- renderDT({
+    # Set dynamic column labels for time-related columns
+    time_unit <- switch(
+      input$aggregate_by_violation,
+      "year" = " (Years)",
+      "quarter" = " (Quarters)",
+      "month" = " (Months)"
+    )
+    
+    colnames <- c(
+      "Time Period",
+      "Selected Demo Sites",
+      "Treatment Technology",
+      "Total Violations",
+      "Mean Violation Measure (µg/L)",
+      paste0("Avg Time in Compliance", time_unit),
+      paste0("Avg Time to Return to Compliance", time_unit)
+    )
+    
+    datatable(
+      aggregated_violation_data(),
+      options = list(pageLength = 5, scrollX = TRUE),
+      rownames = FALSE,
+      colnames = colnames
+    )
+  })
+  
+  
+  
+  # Download CSV for filtered data
+  output$download_filtered_arsenic_violation <- downloadHandler(
+    filename = function() {
+      paste("filtered_violation_data_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(filtered_violation_data(), file, row.names = FALSE)
+    }
+  )
+  
+  # Download CSV for aggregated data
+  output$download_aggregated_arsenic_violation <- downloadHandler(
+    filename = function() {
+      paste("aggregated_violation_data_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(aggregated_violation_data(), file, row.names = FALSE)
+    }
+  )
+  
+
+# Maps --------------------------------------------------------------------
+  # Render the table
+  output$demo_sites_table <- renderDT({
+    datatable(
+      arsenic_demo_sites,
+      options = list(pageLength = 5, scrollX = TRUE),
+      rownames = FALSE
+    )
+  })
+  
+  # Download handler
+  output$download_demo_sites <- downloadHandler(
+    filename = function() {
+      paste("arsenic_demo_sites_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(arsenic_demo_sites, file, row.names = FALSE)
+    }
+  )
+  
+  
 }
 
+
+# Run App -----------------------------------------------------------------
 shinyApp(ui = ui, server = server)
 
